@@ -1,0 +1,54 @@
+---
+title: "Regressao-Linear"
+author: "Guilherme Elias"
+date: "14/02/2021"
+output: html_document
+---
+
+```{r message = FALSE}
+library(openxlsx)
+df_startups = read.xlsx("Regressao-linear-multipla.xlsx", sheet = "Startups")
+options(scipen = 999)
+```
+
+## Análise de Correlação
+Para buscar multicolinearidade
+```{r, message = FALSE}
+library(GGally)
+ggpairs(df_startups, title="Correlograma")
+```
+
+## Regressão Linear com todas as variáveis
+
+Para retirar as variáveis, basta indicar quais devem ser removidas inserindo um - ou indicar ao programa quais variáveis devem ser utilizadas.
+
+```{r}
+regressao = lm(data=df_startups, Lucro ~ .)
+summary(regressao)
+```
+
+### Stepwise
+Para utilizar o stepwise, basta montar a regressão com todas as variáveis e aplicar o comando "step".
+No fim, há a melhor regressão escolhida pela função step.
+```{r}
+regressao_step = lm(data=df_startups, Lucro ~ .)
+step(regressao_step, direction="both")
+```
+#### Regressão escolhida pela função
+```{r}
+regressao_step_final = lm(formula = Lucro ~ Investimento_PeD + Investimento_em_Mkt, 
+    data = df_startups)
+summary(regressao_step_final)
+```
+#### Equação final
+
+$y = 47579,56259 + 0,73571x_1 + 0,07094x_2$
+
+Sendo y = Lucro, $x_1$ = Investimento_PeD e $x_2$ = Investimento_em_Mkt
+
+### Predict
+
+```{r}
+dados_predicao = data.frame(Investimento_PeD=c(40000), Investimento_em_Mkt=c(100000))
+predict(regressao_step_final, dados_predicao)
+```

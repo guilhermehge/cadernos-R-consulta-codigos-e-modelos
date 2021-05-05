@@ -1,0 +1,219 @@
+---
+title: "Regressao-Logistica-PontodeCorte-Categorizacao"
+author: "Guilherme Elias"
+date: "15/02/2021"
+output: html_document
+---
+
+```{r message = FALSE}
+library(readxl)
+
+imobiliario_ams <- read_excel("CREDITO IMOBILIARIO - Amostra.xlsx", sheet="Amostra")
+```
+
+## Análise exploratória univariada
+
+### #Variável resposta
+```{r}
+prop.table(table(imobiliario_ams$TARGET))
+```
+### #Variáveis quantitativas
+```{r}
+summary(imobiliario_ams)
+```
+### Variáveis qualitativas
+```{r}
+char <- unlist(lapply(imobiliario_ams, is.character)) #seleciona as variaveis char
+#loop para tabela de todas as variaveis char
+quali <- imobiliario_ams[ , char]
+names<-names(quali) #salva os nomes das variaveis em um vetor
+for (i in names) {
+  print(i)
+  print(table(quali[,i],useNA="always"))
+}
+```
+## Análise bivariada (apenas alguns exemplos)
+### Tabela de proporção (row percentage)
+```{r message = FALSE}
+library(expss)
+cro_rpct(imobiliario_ams$NAME_CONTRACT_TYPE, imobiliario_ams$TARGET)
+```
+### Boxplot com a variável resposta
+```{r}
+boxplot(imobiliario_ams$AMT_ANNUITY ~ imobiliario_ams$TARGET)
+```
+
+## Cálculo do IV
+IV <= 0,02 - Fraquíssima;
+
+0,02 < IV <= 0,10 - Fraca;
+
+0,10 < IV <= 0,30 - Média;
+
+0,30 < IV <= 0,50 - Forte;
+
+IV > 0,50 - Suspeita
+
+```{r message = FALSE}
+library(Information) 
+library(InformationValue)
+IV <- create_infotables(data = imobiliario_ams, y = "TARGET")
+IV$Summary
+```
+
+## Categorização 
+### DISCRETIZE utilizando QUARTIS
+```{r message = FALSE}
+library(arules)
+imobiliario_ams<-as.data.frame(imobiliario_ams)
+imobiliario_ams$AMT_CREDIT_quartis<-discretize(imobiliario_ams$AMT_CREDIT, method="frequency", breaks=4)
+imobiliario_ams$REGION_POPULATION_RELATIVE_quartis<-discretize(imobiliario_ams$REGION_POPULATION_RELATIVE, method="frequency", breaks=4)
+imobiliario_ams$AMT_ANNUITY_quartis<-discretize(imobiliario_ams$AMT_ANNUITY, method="frequency", breaks=4)
+```
+
+### Utilizando smbinning
+```{r message = FALSE}
+library(smbinning)
+AMT_CREDIT_otim <-smbinning(df=imobiliario_ams,y="TARGET",x="AMT_CREDIT",p=0.05) 
+imobiliario_ams<-smbinning.gen(imobiliario_ams,AMT_CREDIT_otim, chrname="AMT_CREDIT_otim")
+REGION_POPULATION_RELATIVE_otim <-smbinning(df=imobiliario_ams,y="TARGET",x="REGION_POPULATION_RELATIVE",p=0.05) 
+imobiliario_ams<-smbinning.gen(imobiliario_ams,REGION_POPULATION_RELATIVE_otim, chrname="REGION_POPULATION_RELATIVE_otim")
+AMT_ANNUITY_otim <-smbinning(df=imobiliario_ams,y="TARGET",x="AMT_ANNUITY",p=0.05) 
+imobiliario_ams<-smbinning.gen(imobiliario_ams,AMT_ANNUITY_otim, chrname="AMT_ANNUITY_otim")
+```
+Após fazer as categorizações, verifica-se o IV novamente para ver se as variáveis ganharam uma maior capacidade de informação.
+
+## Dividindo a base entre treino e teste
+Nesse caso foi utilizada a divisão de 70%, 30%
+```{r}
+set.seed(123)
+amostra = sort(sample(nrow(imobiliario_ams), nrow(imobiliario_ams)*.7))
+treino<-imobiliario_ams[amostra,]
+teste<-imobiliario_ams[-amostra,]
+```
+
+## Montando o modelo logístico (função glm)
+```{r}
+modelo <- glm(TARGET ~ AMT_CREDIT_otim+
+                #NAME_INCOME_TYPE+
+                REGION_RATING_CLIENT+
+                CODE_GENDER+
+                #REGION_POPULATION_RELATIVE+
+                FLAG_EMP_PHONE+
+                AMT_ANNUITY_otim+
+                NAME_FAMILY_STATUS,
+              family=binomial(link='logit'),
+              data=treino)
+summary(modelo) 
+```
+É possível observar que algumas categorias do AMT_ANNUITY e NAME_FAMILY_STATUS estão com o p-valor alto, para resolver isso, pode-se unir essas divisões da variável à variável dummy de controle e criar uma nova categoria, no caso, 01 <= 16146 para AMT_ANNUITY e Married para NAME_FAMILY_STATUS, montando uma categoria. Para isso podemos utilizar ifelse ou case_when. O ifelse será usado abaixo para uma nova base.
+
+## Verificando multicolinearidade
+Valores maiores que 5 indicam multicolinearidade
+```{r message = FALSE}
+library(HH)
+vif(modelo)
+```
+## Cálculo das probabilidades
+```{r}
+#Calcular os preditos
+treino$probabilidade = predict(modelo,treino, type = "response")
+teste$probabilidade = predict(modelo,teste, type = "response")
+```
+
+## Cálculo do KS e ROC para treino e teste
+```{r}
+ks_stat(actuals=treino$TARGET, predictedScores=treino$probabilidade)
+plotROC(actuals=treino$TARGET, predictedScores=treino$probabilidade)
+
+ks_stat(actuals=teste$TARGET, predictedScores=teste$probabilidade)
+plotROC(actuals=teste$TARGET, predictedScores=teste$probabilidade)
+```
+## Cálculos do ponto de corte
+### Para o maior KS
+```{r}
+optimalCutoff(actuals=treino$TARGET, predictedScores=treino$probabilidade, 
+              optimiseFor = 'Both', returnDiagnostics = TRUE)
+```
+No caso, o ponto ótimo de corte é de 0,0735
+
+### Para maximizar a acurácia ou diminuir a diferença entre sensibilidade e especificidade
+```{r, message = FALSE}
+library(cutpointr)
+# Acurácia
+cp_acc <- cutpointr(treino, probabilidade, TARGET,
+                    method = maximize_metric, metric = accuracy)
+summary(cp_acc)
+
+# Minimizar sensibilidade e especificidade
+cp_e_s <- cutpointr(treino, probabilidade, TARGET,
+                    method = minimize_metric, metric = abs_d_sens_spec)
+summary(cp_e_s)
+```
+
+### Aplicando o ponto de corte (máximo KS)
+```{r}
+treino$predito = as.factor(ifelse(treino$probabilidade > 0.07346297, 1, 0))
+```
+
+## Matrizes de confusão e métricas
+```{r}
+table(treino$TARGET, treino$predito)
+round(prop.table(table(treino$TARGET, treino$predito)), 3) # para acuracia
+round(prop.table(table(treino$TARGET, treino$predito), 1), 3) # para sensibilidade e especificidade
+```
+### Matriz de confusão mais bonitinha
+```{r, message = FALSE}
+library(descr)
+CrossTable(treino$TARGET, treino$predito, prop.c = FALSE,prop.t = FALSE, prop.chisq = FALSE)
+```
+
+```{r, message = FALSE}
+library(caret)
+treino$TARGET_factor <- as.factor(treino$TARGET) #transforma a variável qualitativa
+confusionMatrix(data = treino$predito, reference = treino$TARGET_factor, positive = '1')
+```
+## Quebrando a probabilidade em faixas
+```{r}
+treino$probb_faixas <-
+  discretize(treino$probabilidade, method="frequency", 
+             breaks=10)
+cro_rpct(treino$probb_faixas,treino$TARGET)
+```
+## Utilizando a base real atual para aplicação do algoritmo
+```{r}
+oot <- read_excel("CREDITO IMOBILIARIO - Amostra.xlsx", sheet="BASE DADOS_OOT")
+```
+
+## Utilização de ifelse para categorizar as variáveis do modelo inicial
+```{r}
+table(treino$AMT_CREDIT_otim)
+oot$AMT_CREDIT_otim <- ifelse(oot$AMT_CREDIT <= 1086786 , '01 <= 1086786',
+                              '02 > 1086786')
+
+table(treino$REGION_POPULATION_RELATIVE_otim)  
+oot$REGION_POPULATION_RELATIVE_otim <- ifelse(oot$REGION_POPULATION_RELATIVE <= 0.0314 , '01 <= 0.0314',
+                                              ifelse(oot$REGION_POPULATION_RELATIVE <= 0.0358, '02 <= 0.0358',
+                                                     '03 > 0.0358'))
+
+table(treino$AMT_ANNUITY_otim)  
+oot$AMT_ANNUITY_otim <- ifelse(oot$AMT_ANNUITY <= 16146 , '01 <= 16146',
+                                              ifelse(oot$AMT_ANNUITY <= 40446, '02 <= 40446',
+                                                     ifelse(oot$AMT_ANNUITY <= 52479, '03 <= 52479', 
+                                                            '04 > 52479')))
+
+oot$probabilidade = predict(modelo,oot, type = "response")
+```
+## Cálculo do PSI
+PSI <= 0,1 - Não há mudança significativa
+
+0,1 < PSI <= 0,25 - Leve mudança
+
+PSI > 0,25 - Mudanças significativas
+
+```{r message = FALSE}
+library(scorecard)
+perf_psi(score = list(treino = treino$probabilidade, oot = oot$probabilidade))
+```
+
+

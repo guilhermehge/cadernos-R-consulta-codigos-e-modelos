@@ -1,0 +1,142 @@
+---
+title: "Árvores de decisão"
+author: "Guilherme Elias"
+date: "20/02/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Lendo a base de dados 
+
+```{r message = FALSE}
+library(readxl)
+refeicoes = read_excel("Pedidos_Refeicoes.xlsx", sheet = "Base de Dados")
+```
+
+## Transformando as variáveis categóricas em fator
+Necessário para montar árvores de decisão com rpart
+```{r}
+refeicoes[sapply(refeicoes, is.character)] <- lapply(refeicoes[sapply(refeicoes, is.character)], as.factor)
+```
+
+## Análise exploratória de algumas variáveis
+### Visão geral dos tipos
+```{r}
+sapply(refeicoes, class)
+```
+### Variável numérica
+```{r}
+summary(refeicoes$Idade)
+```
+### 2 das variáveis categóricas
+```{r}
+round(prop.table(table(refeicoes$Avaliacao_media_anterior)),3)
+round(prop.table(table(refeicoes$Influenciado_por_nota)),3)
+```
+Observa-se que a proporção da base é de 70,8% de Sim e 29,2% de Não.
+
+## Categorização das variáveis numéricas com quantcut (corta em grupos proporções semelhantes)
+
+```{r message = FALSE}
+library(gtools)
+refeicoes$Idade_cat = quantcut(refeicoes$Idade, 4)
+round(prop.table(table(refeicoes$Idade_cat)),3)
+```
+## Análise bidimensional de algumas variáveis com a resposta
+
+```{r}
+round(prop.table(table(refeicoes$Estado_civil, refeicoes$Influenciado_por_nota), 1), 3)
+round(prop.table(table(refeicoes$Ocupacao, refeicoes$Influenciado_por_nota), 1), 3)
+```
+## Árvore de decisão
+### Com 2 níveis, sem restrição no corte dos nós utilizando
+
+```{r message = FALSE}
+library(CHAID)
+controle <- chaid_control(maxheight = 2)
+
+arvore_2niveis <- chaid(Influenciado_por_nota ~
+                          Idade_cat +
+                          Genero +
+                          Estado_civil +
+                          Ocupacao +
+                          Renda_mensal +
+                          Grau_educacao +
+                          Refeicao_mais_frequente +
+                          Compras_saudaveis +
+                          Reclamacao_atraso +
+                          Avaliacao_media_anterior,
+                        data = refeicoes,
+                        control = controle)
+```
+
+### Plot
+```{r}
+plot(arvore_2niveis, gp = gpar(cex = 0.8))
+```
+**Nesse caso apenas o grupo 8 receberá a classificação de "Sim", pois sua probabilidade é acima de 0,8, acima do corte do modelo de 0,708**
+
+### Inserir o nó no banco de dados
+```{r}
+refeicoes$no_2niveis <- predict(arvore_2niveis, refeicoes, type = "node") # type = "node" pede o nó
+table(refeicoes$no_2niveis)
+round(prop.table(table(refeicoes$no_2niveis)), 3)
+```
+
+### Proporção de Sim e Não em cada nó criado
+
+```{r}
+(prob_geral = sum(refeicoes$Influenciado_por_nota == "Sim") / nrow(refeicoes)) # Conta quantos Sim. Retorno: 0,708, proporção da base
+round(prop.table(table(refeicoes$no_2niveis, refeicoes$Influenciado_por_nota), 1), 3)
+```
+
+### Desempenho do modelo
+O [,2] Pega apenas os "Sim". Mostrado abaixo
+```{r}
+refeicoes$prob_2niveis <- predict(arvore_2niveis, refeicoes, type = "p")[,2] # type = "p" pede a probabilidade
+refeicoes$predito_2niveis <- ifelse(refeicoes$prob_2niveis >= prob_geral, "Sim", "Não") # prob geral calculada acima, 70,8
+```
+
+```{r}
+round(prop.table(table(refeicoes$Influenciado_por_nota, refeicoes$predito_2niveis)), 3) # Acurácia
+round(prop.table(table(refeicoes$Influenciado_por_nota, refeicoes$predito_2niveis), 1), 3) # Especificidade e Sensibilidade
+```
+
+## Árvore de decisão com parâmetros de controle diferentes
+```{r}
+controle <- chaid_control(maxheight = 3,
+                          minsplit = 200,
+                          minprob = 1) # realiza quebras apenas em nós que possuam acima de 200 observações
+
+arvore_3niveis <- chaid(Influenciado_por_nota ~
+                          Idade_cat +
+                          Genero +
+                          Estado_civil +
+                          Ocupacao +
+                          Renda_mensal +
+                          Grau_educacao +
+                          Refeicao_mais_frequente +
+                          Compras_saudaveis +
+                          Reclamacao_atraso +
+                          Avaliacao_media_anterior,
+                        data = refeicoes,
+                        control = controle)
+
+plot(arvore_3niveis, gp = gpar(cex = 0.8))
+
+refeicoes$no_3niveis <- predict(arvore_3niveis, refeicoes, type = "node")
+table(refeicoes$no_3niveis)
+round(prop.table(table(refeicoes$no_3niveis)), 3)
+
+(prob_geral = sum(refeicoes$Influenciado_por_nota == "Sim") / nrow(refeicoes))
+round(prop.table(table(refeicoes$no_3niveis, refeicoes$Influenciado_por_nota), 1), 3)
+
+refeicoes$prob_3niveis <- predict(arvore_3niveis, refeicoes, type = "p")[,2]
+refeicoes$predito_3niveis <- ifelse(refeicoes$prob_3niveis >= prob_geral, "Sim", "Não") # prob geral calculada acima, 70,8
+
+table(refeicoes$Influenciado_por_nota, refeicoes$predito_3niveis)
+round(prop.table(table(refeicoes$Influenciado_por_nota, refeicoes$predito_3niveis)), 3)
+round(prop.table(table(refeicoes$Influenciado_por_nota, refeicoes$predito_3niveis), 1), 3)
+```
+**Nesse caso, os grupos 9, 12 e 13 receberão a classificação de "Sim", pois sua probabilidade é acima de 0,8, acima do corte do modelo de 0,708**

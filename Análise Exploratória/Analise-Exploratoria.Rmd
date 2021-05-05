@@ -1,0 +1,104 @@
+---
+title: "Análise Exploratória"
+author: "Guilherme Elias"
+date: "14/02/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r message=FALSE}
+library(openxlsx)
+df_lim_cred = read.xlsx("Exercicios.xlsx", sheet = "Base de Dados 1") # Apenas variáveis quantitativas
+df_telecom = read.xlsx("Exercicios.xlsx", sheet = "Base de Dados 2") # Há variáveis qualitativas
+```
+
+## Resumo de variáveis
+É possível utilizar esse comando também para cada variável separadamente utilizando o $.
+```{r}
+summary(df_lim_cred)
+```
+```{r}
+library(skimr)
+skim(df_lim_cred)
+```
+```{r}
+library(skimr)
+skim(df_telecom)
+```
+
+
+## Análise de variáveis qualitativas
+### Tabela de frequências
+
+Com a prop.table conseguimos ver a proporção da variável.
+Com apenas table vemos o valor absoluto da quantidade dos itens da variável ou da relação com a variável com outra. Ao utilizar o número 1, calcula-se a % na linha e 2 calcula-se na coluna
+É possível utilizar também o cro, que é uma tabela mais bonitinha. cro_rpct = row percentage, cro_cpct = column percentage
+```{r message=FALSE}
+prop.table(table(df_telecom$Sexo))
+prop.table(table(df_telecom$Sexo, df_telecom$Cancelou),1)
+prop.table(table(df_telecom$Sexo, df_telecom$Cancelou),2)
+table(df_telecom$Cancelou)
+
+library(expss)
+
+cro(df_telecom$Sexo)
+cro_rpct(df_telecom$Sexo, df_telecom$Cancelou)
+cro_cpct(df_telecom$Sexo, df_telecom$Cancelou)
+```
+### Gráfico de pizza
+
+```{r}
+piepercent = prop.table(table(df_telecom$Cancelou))
+pie(table(df_telecom$Cancelou), labels = piepercent)
+
+barplot(table(df_telecom$Sexo))
+```
+
+## Análise de variáveis quantitativas
+### Boxplot
+Há várias formas de se plotar um boxplot, entre elas temos:
+```{r message=FALSE}
+boxplot(df_lim_cred$Rendimento.Total)
+
+library(ggplot2)
+df_lim_cred %>%
+  ggplot(aes(x='', y=Rendimento.Total)) +
+  geom_boxplot(fill='turquoise')
+
+```
+### Boxplot com mais de uma variável
+
+```{r}
+boxplot(df_telecom$`Tempo_relacionamento.(anos)` ~ df_telecom$Num_de_Produtos)
+```
+
+
+
+É possível também descobrir quais são os outliers e suas respectivas linhas no banco de dados da seguinte forma:
+```{r}
+outliers_rend = boxplot.stats(df_lim_cred$Rendimento.Total)$out
+outliers_rend
+
+out_rend_linha = which(df_lim_cred$Rendimento.Total %in% c(outliers_rend))
+out_rend_linha
+```
+### Histograma e assimetria
+Assim como o boxplot, existe também mais de uma forma de se fazer o histograma
+```{r}
+df_lim_cred %>%
+  ggplot(aes(Rendimento.Total)) +
+  geom_histogram(bins=20, fill = 'turquoise', col = 'white')
+
+hist(df_lim_cred$Rendimento.Total, breaks = 20)
+
+library(moments)
+skewness(df_lim_cred$Rendimento.Total) # Assimetria
+```
+
+### Gráfico de dispersão, ou, Scatterplot
+
+```{r}
+plot(df_lim_cred$Limite.do.Cheque.Especial, df_lim_cred$Salário)
+```
+
